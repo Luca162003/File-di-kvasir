@@ -287,7 +287,7 @@ def train_yolo_seg(data_yaml_path, model_size=MODEL_SIZE, epochs=100, img_size=6
         imgsz=img_size,
         batch=batch_size,
         name='polyp_segmentation_v11',
-        patience=30,
+        patience=10,
         save=True,
         device=device,
         workers=workers,
@@ -450,6 +450,7 @@ def predict_on_all_images_seg(model_path, image_dir, data_yaml_path=None,
             # Save image with boxes AND masks
             img_with_results = result.plot()
             output_path = save_dir / f"pred_{img_path.name}"
+            img_to_save = np.ascontiguousarray(img_with_results, dtype=np.uint8)
             cv2.imwrite(str(output_path), img_with_results)
 
             # Count predictions
@@ -621,7 +622,7 @@ def train_yolo_seg_with_tuned_params(data_yaml_path, best_hyperparameters,
         'imgsz': img_size,
         'batch': batch_size,
         'name': 'polyp_segmentation_v11_tuned',
-        'patience': 30,
+        'patience': 10,
         'save': True,
         'device': device,
         'workers': workers,
@@ -684,7 +685,6 @@ else:
     BEST_MODEL_PATH = Path("Kvasir-mask/polyp_segmentation_v11/weights/best.pt")
 
 print(f"\n✓ Using model: {BEST_MODEL_PATH}")
-BEST_MODEL_PATH = Path("Kvasir-mask/polyp_segmentation_v11_tuned/weights/best.pt")
 
 # ========== STEP 3: Evaluate Model ==========
 print("\n" + "="*70)

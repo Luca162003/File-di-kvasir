@@ -3,3 +3,4 @@
 yolo11n-seg.pt
 .gitattributes
 /Polyps/best.pt
+/C-trus/SEBattention1.pth
