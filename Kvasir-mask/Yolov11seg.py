@@ -141,9 +141,6 @@ class KvasirToYOLOSeg:
         polyp_images = [img for img in all_images if img.stem in self.annotations]
         healthy_images = [img for img in all_images if img.stem not in self.annotations]
 
-        # ... (splitting and shuffling logic remains unchanged) ...
-        # (omitted for brevity, assume splitting is correct)
-
         # Split each category proportionally
         def split_list(lst, train_r, val_r):
             n = len(lst)
