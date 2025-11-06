@@ -5,7 +5,7 @@ import glob
 import random
 import shutil
 from pathlib import Path
-import pandas as pd
+
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,23 +13,19 @@ import cv2
 import torch
 from PIL import Image
 from ultralytics import YOLO
-
 print("Current working directory:", os.getcwd())
-os.chdir("/users/lucatognari/Pitone/File-di-python/File-di-kvasir") #metti come directory il path del progetto, all'interno del quale si trova la cartella kvasir-mask
-
+os.chdir("/home/luca/Desktop/Luca/File-di-kvasir_Daniele/") #metti come directory il path del progetto, all'interno del quale si trova la cartella kvasir-mask
 
 # ========== CONFIGURATION ==========
-IMAGE_DIR = "Kvasir-mask/images"          # All 2500 images
-MASK_DIR = "Kvasir-mask/masks"            # Masks for 2000 polyps
-JSON_PATH = "Kvasir-mask/bounding-boxes.json"  # Bounding boxes
+IMAGE_DIR = "Kvasir-mask/images"          
+MASK_DIR = "Kvasir-mask/masks"            
+JSON_PATH = "Kvasir-mask/bounding-boxes.json" 
 OUTPUT_DIR = "Kvasir-mask/kvasir_yolo_seg_dataset"
-MODEL_SIZE = 'm'  # YOLOv11-nano
-BATCH_SIZE = 16   # Increase for nano
+MODEL_SIZE = 'm'  
+BATCH_SIZE = 16   
 EPOCHS = 100
 IMG_SIZE = 640
 DATA_YAML = f"{OUTPUT_DIR}/data.yaml"
-
-
 class KvasirToYOLOSeg:
     """Convert Kvasir masks + JSON to YOLO segmentation format with healthy images."""
     MIN_AREA = 200  # Minimum area to consider a contour a valid polyp
@@ -61,7 +57,7 @@ class KvasirToYOLOSeg:
         valid_polygons = []
         
         # Calculate the approximation tolerance (epsilon) based on the perimeter
-        epsilon_multiplier = 0.000001
+        epsilon_multiplier = 0.001
 
         for contour in contours:
             perimeter = cv2.arcLength(contour, True)
@@ -101,27 +97,6 @@ class KvasirToYOLOSeg:
         # Clamp to valid range
         polygon = np.clip(polygon, 0.0, 1.0)
         return polygon
-    
-    # NOTE: _voc_to_yolo_bbox is included but NO LONGER CALLED in _process_split
-    @staticmethod
-    def _voc_to_yolo_bbox(bbox, img_width, img_height):
-        """Convert Pascal VOC bbox to YOLO format with validation."""
-        xmin = float(bbox['xmin'])
-        ymin = float(bbox['ymin'])
-        xmax = float(bbox['xmax'])
-        ymax = float(bbox['ymax'])
-
-        x_center = (xmin + xmax) / 2.0
-        y_center = (ymin + ymax) / 2.0
-        width = xmax - xmin
-        height = ymax - ymin
-
-        x_center /= img_width
-        y_center /= img_height
-        width /= img_width
-        height /= img_height
-
-        return [0, x_center, y_center, width, height]
 
     def prepare_dataset(self, train_split=0.7, val_split=0.2, test_split=0.1):
         """Prepare segmentation dataset with polyp + healthy images."""
@@ -140,8 +115,12 @@ class KvasirToYOLOSeg:
         # Separate polyp vs healthy images
         polyp_images = [img for img in all_images if img.stem in self.annotations]
         healthy_images = [img for img in all_images if img.stem not in self.annotations]
-
-        # Split each category proportionally
+        
+        # **FIX: Shuffle BEFORE splitting to prevent data leakage**
+        rnd = random.Random(self.seed)
+        rnd.shuffle(polyp_images)
+        rnd.shuffle(healthy_images)
+        
         def split_list(lst, train_r, val_r):
             n = len(lst)
             n_train = int(n * train_r)
@@ -157,18 +136,16 @@ class KvasirToYOLOSeg:
             'test': polyp_test + healthy_test
         }
 
-        rnd = random.Random(self.seed)
+        # Shuffle combined splits to mix polyp and healthy images
         for split_imgs in splits.values():
             rnd.shuffle(split_imgs)
 
         print(f"\n{'='*70}")
         print("DATASET SPLIT")
-        # ... (split summary printing remains unchanged) ...
         print(f"Train: {len(splits['train'])} ({len(polyp_train)} polyps + {len(healthy_train)} healthy)")
         print(f"Val:   {len(splits['val'])} ({len(polyp_val)} polyps + {len(healthy_val)} healthy)")
         print(f"Test:  {len(splits['test'])} ({len(polyp_test)} polyps + {len(healthy_test)} healthy)")
         print(f"{'='*70}\n")
-
 
         # Process each split
         for split_name, images in splits.items():
@@ -178,7 +155,7 @@ class KvasirToYOLOSeg:
         # Create YAML
         self._create_yaml()
 
-        print(f"\n✓ Segmentation dataset created!")
+        print(f"Segmentation dataset created!")
         print(f"  Output: {self.output_dir.resolve()}")
 
 
@@ -209,13 +186,11 @@ class KvasirToYOLOSeg:
 
                 if not mask_path.exists():
                     print(f"Warning: Mask not found for {img_id}")
-                    label_path.touch()
                     continue
 
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                 if mask is None:
                     print(f"Warning: Could not read mask for {img_id}")
-                    label_path.touch()
                     continue
 
                 if mask.shape[:2] != (h, w):
@@ -225,21 +200,16 @@ class KvasirToYOLOSeg:
 
                 # Get the SINGLE clean polygon (from the mask_to_polygon logic)
                 polygons = self.mask_to_polygon(mask)
+                if not polygons:
+                    print(f"Warning: No valid polygons for {img_id}. SKIPPING image.")
+                    continue
 
                 with open(label_path, 'w') as f:
-                    # Write segmentation polygon(s)
-                    if polygons:
                         for polygon in polygons:
                             norm_poly = self.normalize_polygon(polygon, w, h)
                             # Format for YOLO: class_id x1 y1 x2 y2 ...
                             coords = ' '.join(f"{x:.6f} {y:.6f}" for x, y in norm_poly)
                             f.write(f"0 {coords}\n")
-                    else:
-                        print(f"Warning: No valid polygons for {img_id}")
-
-                # !!! CRITICAL FIX: The section that wrote the original BBOX line (0 x y w h) 
-                # has been removed to prevent the redundant second bounding box in the label file.
-
             else:
                 # Healthy image — create empty label file
                 label_path.touch()
@@ -260,6 +230,7 @@ class KvasirToYOLOSeg:
         with open(yaml_path, 'w') as f:
             yaml.dump(data, f, default_flow_style=False)
         print(f"\n  Created: {yaml_path}")
+
 def train_yolo_seg(data_yaml_path, model_size=MODEL_SIZE, epochs=100, img_size=640, 
                    batch_size=BATCH_SIZE, workers=4, lr0=1e-4):
     """Train YOLOv11 Segmentation model."""
@@ -284,7 +255,7 @@ def train_yolo_seg(data_yaml_path, model_size=MODEL_SIZE, epochs=100, img_size=6
         imgsz=img_size,
         batch=batch_size,
         name='polyp_segmentation_v11',
-        patience=10,
+        patience=20,
         save=True,
         device=device,
         workers=workers,
@@ -330,211 +301,314 @@ def train_yolo_seg(data_yaml_path, model_size=MODEL_SIZE, epochs=100, img_size=6
     )
     
     return model
-def evaluate_model_seg(model_path, data_yaml_path, split='val', conf = 0.001, iou = 0.5):
-    """Evaluate segmentation model."""
+def add_gt_overlay(img, label_path):
+    """Add ground truth overlay to image (green boxes/masks)."""
+    if not label_path.exists():
+        return img
+    
+    h, w = img.shape[:2]
+    overlay = img.copy()
+    
+    with open(label_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 5:  # Need at least class + 2 points
+                continue
+            
+            # Parse polygon points
+            coords = list(map(float, parts[1:]))
+            points = []
+            for i in range(0, len(coords), 2):
+                x = int(coords[i] * w)
+                y = int(coords[i + 1] * h)
+                points.append([x, y])
+            
+            if len(points) >= 3:
+                # Draw filled polygon (semi-transparent green)
+                pts = np.array(points, dtype=np.int32)
+                cv2.fillPoly(overlay, [pts], (0, 255, 0))
+                # Draw polygon outline
+                cv2.polylines(overlay, [pts], True, (0, 200, 0), 2)
+    
+    # Blend with original
+    alpha = 0.3
+    img = cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0)
+    
+    return img
+
+def evaluate_model_seg(model_path, data_yaml_path, split_name, conf=0.001, iou=0.5):
+  
     model = YOLO(model_path)
     
-    print(f"Running validation with NMS IOU = {iou} and Conf = {conf}")
+    print(f"\nRunning validation with Conf={conf}, IoU={iou} on split: {split_name}")
     metrics = model.val(
         data=data_yaml_path, 
-        split=split,
+        split=split_name,
         conf=conf,
         iou=iou
     )
 
+    # --- CHECK IF SEGMENTATION METRICS EXIST ---
+    if not hasattr(metrics, 'seg') or metrics.seg is None:
+        print("\nERROR: This is not a segmentation model! metrics.seg is not available.")
+        print("Make sure you're using a YOLO-seg model (e.g., yolo-seg.pt)")
+        return metrics
+
+    # --- GET YOLO'S REPORTED METRICS ---
+    # These metrics are at the confidence threshold that gives the *optimal F1-score*
+    # Box metrics
+    box_p_yolo = metrics.box.p[0] if hasattr(metrics.box, 'p') and len(metrics.box.p) > 0 else 0.0
+    box_r_yolo = metrics.box.r[0] if hasattr(metrics.box, 'r') and len(metrics.box.r) > 0 else 0.0
+    box_map50 = metrics.box.map50 if hasattr(metrics.box, 'map50') else 0.0
+    box_map = metrics.box.map if hasattr(metrics.box, 'map') else 0.0
+    
+    # Mask metrics
+    mask_p_yolo = metrics.seg.p[0] if hasattr(metrics.seg, 'p') and len(metrics.seg.p) > 0 else 0.0
+    mask_r_yolo = metrics.seg.r[0] if hasattr(metrics.seg, 'r') and len(metrics.seg.r) > 0 else 0.0
+    mask_map50 = metrics.seg.map50 if hasattr(metrics.seg, 'map50') else 0.0
+    mask_map = metrics.seg.map if hasattr(metrics.seg, 'map') else 0.0
+    
+    # --- Initialize variables for summary ---
+    total_gt = 0
+    total_pred = 0
+    TP = 0
+    FP = 0
+    FN = 0
+    precision = 0.0
+    recall = 0.0
+    f1 = 0.0
+
+    # --- EXTRACT CONFUSION MATRIX ---
+    # Note: The confusion matrix is calculated at the *specific conf* passed to model.val()
+    if hasattr(metrics, 'confusion_matrix') and metrics.confusion_matrix is not None:
+        cm = metrics.confusion_matrix.matrix
+        
+        print(f"\nDEBUG - Confusion Matrix:")
+        print(f"{cm}")
+        print(f"\nStructure (for single-class detection):")
+        print(f"  Rows = Predicted, Cols = Actual")
+        print(f"  [[TP, FP],   ← Row 0: Predicted polyps")
+        print(f"   [FN, TN]]   ← Row 1: Predicted background")
+        print(f"\nInterpretation:")
+        print(f"  cm[0,0] = {int(cm[0,0])}: True polyps correctly detected (TP)")
+        print(f"  cm[0,1] = {int(cm[0,1])}: Background predicted as polyp (FP) <--- FALSE POSITIVE")
+        print(f"  cm[1,0] = {int(cm[1,0])}: True polyps missed (FN)            <--- FALSE NEGATIVE")
+        print(f"  cm[1,1] = {int(cm[1,1])}: Background correctly identified (TN)")
+        
+        # Extract TP/FP/FN
+        TP = int(cm[0, 0])  # Predicted Polyp, Actual Polyp
+        FP = int(cm[0, 1])  # Predicted Polyp, Actual Background
+        FN = int(cm[1, 0])  # Predicted Background, Actual Polyp
+        
+        total_pred = TP + FP
+        total_gt = TP + FN
+        
+        # Calculate metrics from confusion matrix
+        precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+        recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        print(f"\nCalculated from Confusion Matrix (conf={conf}):")
+        print(f"  Total Ground Truth: {total_gt}")
+        print(f"  Total Predictions:  {total_pred}")
+        print(f"  TP={TP}, FP={FP}, FN={FN}")
+        print(f"  Precision: {precision:.4f} = {TP}/({TP}+{FP})")
+        print(f"  Recall:    {recall:.4f} = {TP}/({TP}+{FN})")
+        print(f"  F1-score:  {f1:.4f}")
+        
+        # Sanity check against metrics.confusion_matrix.nt
+        # nt[0] = number of targets for class 0 (polyps)
+        if hasattr(metrics.confusion_matrix, 'nt') and len(metrics.confusion_matrix.nt) > 0:
+             total_gt_yolo = int(metrics.confusion_matrix.nt[0])
+             if total_gt_yolo != total_gt:
+                 print(f"  WARNING: CM Total GT ({total_gt}) != metrics.nt[0] ({total_gt_yolo})")
+             else:
+                 print(f"  (Total Ground Truth {total_gt} matches YOLO's instance count)")
+
+    else:
+        print("\nWARNING: Confusion matrix not available!")
+        # Fallback using YOLO's reported metrics (less precise)
+        precision = box_p_yolo
+        recall = box_r_yolo
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        # We can't know TP/FP/FN for sure without the CM at this conf
+        total_gt = 0 # Unknown
+        
+
+    # --- PRINT SUMMARY ---
     print(f"\n{'='*70}")
-    print(f"EVALUATION RESULTS ON {split.upper()} SET")
+    print(f"EVALUATION RESULTS ON {split_name.upper()} SET")
+    print(f"Confidence: {conf} | IoU Threshold: {iou}")
+    if total_gt > 0:
+        print(f"Total Ground Truth Polyps: {total_gt}")
     print(f"{'='*70}")
     
-    # Box metrics
-    print(f"Box mAP@0.50     : {metrics.box.map50:.4f}")
-    print(f"Box mAP@0.50-95  : {metrics.box.map:.4f}")
+    print("\n### Box (Detection) Metrics")
+    print(f"YOLO Reported (at optimal F1 conf):")
+    print(f"  Precision: {box_p_yolo:.4f}")
+    print(f"  Recall:    {box_r_yolo:.4f}")
+    print(f"  mAP@0.50:  {box_map50:.4f}")
+    print(f"  mAP@0.50:0.95: {box_map:.4f}")
     
-    # Mask metrics (segmentation)
-    print(f"\nMask mAP@0.50    : {metrics.seg.map50:.4f}")
-    print(f"Mask mAP@0.50-95 : {metrics.seg.map:.4f}")
+    if hasattr(metrics, 'confusion_matrix') and metrics.confusion_matrix is not None:
+        print(f"\nFrom Confusion Matrix (at conf={conf}):")
+        print(f"  Total Predicted: {total_pred}")
+        print(f"  TP/FP/FN: {TP}/{FP}/{FN}")
+        print(f"  Precision: {precision:.4f}")
+        print(f"  Recall:    {recall:.4f}")
+        print(f"  F1-score:  {f1:.4f}")
     
-    if hasattr(metrics.box, 'p') and len(metrics.box.p) > 0:
-        print(f"\nBox Precision    : {metrics.box.p[0]:.4f}")
-    if hasattr(metrics.box, 'r') and len(metrics.box.r) > 0:
-        print(f"Box Recall       : {metrics.box.r[0]:.4f}")
+    print("\n### Mask (Segmentation) Metrics")
+    print(f"YOLO Reported (at optimal F1 conf):")
+    print(f"  Precision: {mask_p_yolo:.4f}")
+    print(f"  Recall:    {mask_r_yolo:.4f}")
+    print(f"  mAP@0.50:  {mask_map50:.4f}")
+    print(f"  mAP@0.50:0.95: {mask_map:.4f}")
     
-    if hasattr(metrics.seg, 'p') and len(metrics.seg.p) > 0:
-        print(f"\nMask Precision   : {metrics.seg.p[0]:.4f}")
-    if hasattr(metrics.seg, 'r') and len(metrics.seg.r) > 0:
-        print(f"Mask Recall      : {metrics.seg.r[0]:.4f}")
+    if hasattr(metrics, 'confusion_matrix') and metrics.confusion_matrix is not None:
+        print(f"\nFrom Confusion Matrix (at conf={conf}):")
+        print(f"  Note: Same TP/FP/FN as box (YOLO uses single confusion matrix)")
+        print(f"  Total Predicted: {total_pred}")
+        print(f"  TP/FP/FN: {TP}/{FP}/{FN}")
+        print(f"  Precision: {precision:.4f}")
+        print(f"  Recall:    {recall:.4f}")
+        print(f"  F1-score:  {f1:.4f}")
     
     print(f"{'='*70}\n")
 
     return metrics
 
-
-def predict_and_visualize_seg(model_path, image_path, conf_threshold=0.25, iou = 0.5):
-    """Run inference and visualize segmentation results on a single image."""
-    model = YOLO(model_path)
-    results = model(image_path, conf=conf_threshold, iou=iou)
-
-    for result in results:
-        # Plot with both boxes and masks
-        img_with_results = result.plot()
-        
-        plt.figure(figsize=(12, 8))
-        plt.imshow(cv2.cvtColor(img_with_results, cv2.COLOR_BGR2RGB))
-        plt.axis('off')
-        plt.title(f'Polyp Segmentation (confidence > {conf_threshold})', fontsize=14)
-        plt.tight_layout()
-        plt.show()
-
-        # Print detections
-        if hasattr(result, 'boxes') and len(result.boxes) > 0:
-            print(f"\n✓ Detected {len(result.boxes)} polyp(s):")
-            for i, box in enumerate(result.boxes):
-                conf = float(box.conf[0].item())
-                print(f"  Polyp {i+1}: confidence = {conf:.3f}")
-        else:
-            print("\n✓ No polyps detected (healthy image)")
-
-
 def predict_on_all_images_seg(model_path, image_dir, data_yaml_path=None, 
-                               conf_threshold=0.25, save_dir='predictions_seg', iou = 0.5):
+                               conf_threshold=0.25, save_dir='predictions_seg', iou=0.5):
     """
-    Run inference on ALL images in a directory, save results, and compute statistics.
-    Works with segmentation models - saves images with boxes + masks.
-    
-    Args:
-        model_path: Path to trained segmentation model
-        image_dir: Directory with test or val images
-        data_yaml_path: Optional path to data.yaml for mAP evaluation
-        conf_threshold: Confidence threshold
-        save_dir: Directory to save prediction images
+    Run inference, save predicted images with GT overlay, and compute statistics.
     """
     model = YOLO(model_path)
     image_dir = Path(image_dir)
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    # --- SETUP PATHS ---
+    # Assumes standard YOLO dataset structure: .../dataset/images/test, .../dataset/labels/test
     label_dir = image_dir.parent.parent / 'labels' / image_dir.name
-    image_files = list(image_dir.glob("*.jpg")) + list(image_dir.glob("*.png"))
+    image_files = sorted(list(image_dir.glob("*.jpg")) + list(image_dir.glob("*.png")))
 
     if not image_files:
         print(f"No images found in {image_dir}")
         return
 
-    print(f"\n{'='*70}")
-    print(f"RUNNING INFERENCE ON ALL {len(image_files)} IMAGES")
-    print(f"{'='*70}\n")
-
+    # --- INITIALIZE COUNTERS ---
     total_gt_polyps = 0
     total_pred_polyps = 0
-    images_with_polyps = 0
+    TP_img = FP_img = FN_img = TN_img = 0
 
-    TP = FP = FN = TN = 0
-
+    print(f"\n{'='*70}")
+    print(f"1. RUNNING INFERENCE AND VISUALIZATION ON {len(image_files)} IMAGES (Saving GT Overlay)")
+    print(f"   Conf={
+        
+        
+        shold}, IoU={iou}")
+    print(f"{'='*70}\n")
+    
+    # --- 1. INFERENCE, VISUALIZATION, AND IMAGE-LEVEL COUNTING LOOP ---
     for img_path in image_files:
-        # Check ground truth
         label_path = label_dir / f"{img_path.stem}.txt"
+        
+        # Check ground truth
+        gt_boxes = []
         if label_path.exists():
             with open(label_path, 'r') as f:
                 gt_boxes = [line for line in f if line.strip()]
-                num_gt = len(gt_boxes)
-        else:
-            num_gt = 0
+        num_gt = len(gt_boxes)
+        total_gt_polyps += num_gt
 
-        # Run inference
+        # Run inference (single image)
         results = model(str(img_path), conf=conf_threshold, iou=iou, verbose=False)
+        result = results[0] 
 
-        for result in results:
-            # Save image with boxes AND masks
-            img_with_results = result.plot()
-            output_path = save_dir / f"pred_{img_path.name}"
-            img_to_save = np.ascontiguousarray(img_with_results, dtype=np.uint8)
-            cv2.imwrite(str(output_path), img_with_results)
+        img_with_results = result.plot()
 
-            # Count predictions
-            if hasattr(result, 'boxes') and len(result.boxes) > 0:
-                num_pred = len(result.boxes)
-                total_pred_polyps += num_pred
-                images_with_polyps += 1
-                print(f"✓ {img_path.name}: {num_pred} polyp(s)")
-            else:
-                num_pred = 0
-                print(f"  {img_path.name}: No polyps detected")
+        img_with_gt_overlay = add_gt_overlay(img_with_results, label_path)
+        
+        # 3. Save the final image
+        output_path = save_dir / f"pred_gt_{img_path.name}"
+        img_bgr = img_with_gt_overlay[..., ::-1] 
+        
+        img_to_save = np.ascontiguousarray(img_bgr, dtype=np.uint8)
+        cv2.imwrite(str(output_path), img_to_save)
+        # Count predictions
+        num_pred = 0
+        if result.masks is not None:
+            num_pred = len(result.masks)
+        
+        total_pred_polyps += num_pred
+        
+        # Contingency matrix (image-level)
+        if num_gt > 0 and num_pred > 0:
+            TP_img += 1
+        elif num_gt == 0 and num_pred > 0:
+            FP_img += 1
+        elif num_gt > 0 and num_pred == 0:
+            FN_img += 1
+        elif num_gt == 0 and num_pred == 0:
+            TN_img += 1
+            
+        print(f"  Processed {img_path.name}: GT={num_gt}, Pred={num_pred}")
 
-            # Contingency matrix (image-level)
-            if num_gt > 0 and num_pred > 0:
-                TP += 1
-            elif num_gt == 0 and num_pred > 0:
-                FP += 1
-            elif num_gt > 0 and num_pred == 0:
-                FN += 1
-            elif num_gt == 0 and num_pred == 0:
-                TN += 1
-
-            total_gt_polyps += num_gt
-
-    # Compute metrics
-    precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
-    recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
-    f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-
-    # mAP evaluation (uses YOLO's built-in validation)
-    map50_box = map5095_box = None
-    map50_mask = map5095_mask = None
+    # --- 2. CALCULATE IMAGE-LEVEL METRICS ---
     
-    if data_yaml_path:
-        try:
-            metrics = model.val(
-                data=data_yaml_path, 
-                split=image_dir.name, 
-                conf=conf_threshold, 
-                iou=iou,
-                verbose=False
-            )
-            
-            # Box metrics
-            map50_box = float(getattr(metrics.box, 'map50', 0.0))
-            map5095_box = float(getattr(metrics.box, 'map', 0.0))
-            
-            # Mask metrics (segmentation specific)
-            if hasattr(metrics, 'seg'):
-                map50_mask = float(getattr(metrics.seg, 'map50', 0.0))
-                map5095_mask = float(getattr(metrics.seg, 'map', 0.0))
-        except Exception as e:
-            print(f"\nWarning: Could not compute mAP metrics: {e}")
+    precision_img = TP_img / (TP_img + FP_img) if (TP_img + FP_img) > 0 else 0.0
+    recall_img = TP_img / (TP_img + FN_img) if (TP_img + FN_img) > 0 else 0.0
+    f1_score_img = 2 * precision_img * recall_img / (precision_img + recall_img) if (precision_img + recall_img) > 0 else 0.0
 
-    # Summary
+    # --- 3. FINAL SUMMARY ---
+    
     print(f"\n{'='*70}")
-    print(f"INFERENCE SUMMARY")
+    print(f"FINAL EVALUATION SUMMARY")
     print(f"{'='*70}")
+    
     print(f"Total images:              {len(image_files)}")
-    print(f"Images with polyps:        {images_with_polyps}")
-    print(f"Images without polyps:     {len(image_files) - images_with_polyps}")
-    print(f"Total ground truth polyps: {total_gt_polyps}")
-    print(f"Total predicted polyps:    {total_pred_polyps}")
     
-    print(f"\nContingency Matrix (image-level):")
-    print(f"  TP (GT & Pred):           {TP}")
-    print(f"  FP (No GT, Pred):         {FP}")
-    print(f"  FN (GT, No Pred):         {FN}")
-    print(f"  TN (No GT, No Pred):      {TN}")
+    print(f"\n### Image-Level Metrics (Detection/No-Detection)")
+    print(f"  Description: 'Was *any* polyp found in an image that *had* one?'")
+    print(f"  Images with GT & Pred (TP_img): {TP_img}")
+    print(f"  Images with no GT & Pred (FP_img): {FP_img}")
+    print(f"  Images with GT & no Pred (FN_img): {FN_img}")
+    print(f"  Images with no GT & no Pred (TN_img): {TN_img}")
+    print(f"  ---------------------------------")
+    print(f"  Precision (Image-Level): {precision_img:.4f}")
+    print(f"  Recall (Image-Level):    {recall_img:.4f}")
+    print(f"  F1-score (Image-Level):  {f1_score_img:.4f}")
+
+    print(f"\n### Polyp-Level Metrics (Object-by-Object)")
+    print(f"  Description: 'Of all {total_gt_polyps} polyps, how many were found?'")
+    print(f"  (Note: This re-runs validation using model.val() for robust metrics)")
     
-    print(f"\nImage-Level Metrics:")
-    print(f"  Precision: {precision:.4f}")
-    print(f"  Recall:    {recall:.4f}")
-    print(f"  F1-score:  {f1_score:.4f}")
-    
-    if map50_box is not None:
-        print(f"\nBox Detection Metrics:")
-        print(f"  mAP@0.50:     {map50_box:.4f}")
-        print(f"  mAP@0.50-0.95: {map5095_box:.4f}")
-    
-    if map50_mask is not None:
-        print(f"\nMask Segmentation Metrics:")
-        print(f"  mAP@0.50:     {map50_mask:.4f}")
-        print(f"  mAP@0.50-0.95: {map5095_mask:.4f}")
-    
-    print(f"\nPredictions saved to: {save_dir.resolve()}")
+    metrics = None
+    if data_yaml_path:
+
+        metrics = evaluate_model_seg(
+            model_path=model_path, 
+            data_yaml_path=data_yaml_path, 
+            split_name=image_dir.name, 
+            conf=conf_threshold, 
+            iou=iou
+        )
+    else:
+        print("\nNote: 'data_yaml_path' not provided. Cannot compute robust polyp-level metrics.")
+
+    print(f"\nPredictions saved with GT overlay to: {save_dir.resolve()}")
     print(f"{'='*70}")
+    
+    # Return the metrics of the mask segmentation
+    if metrics and hasattr(metrics, 'seg'):
+        mask_p = metrics.seg.p[0] if len(metrics.seg.p) > 0 else 0.0
+        mask_r = metrics.seg.r[0] if len(metrics.seg.r) > 0 else 0.0
+        mask_f1 = 2 * mask_p * mask_r / (mask_p + mask_r) if (mask_p + mask_r) > 0 else 0.0
+        return mask_p, mask_r, mask_f1, metrics.seg.map50, metrics.seg.map
+    else:
+        # Fallback if metrics couldn't be calculated
+        return None, None, None, None, None
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
@@ -568,7 +642,8 @@ search_space = {
     "flipud": (0.0, 1.0),
     "fliplr": (0.0, 1.0),
     "box": (3.0, 7.5),     # Box loss weight
-    "cls": (0.2, 2.0) 
+    "cls": (0.2, 2.0),
+    "seg": (0.5, 10.0)
 }
 
 model.tune(
@@ -682,25 +757,9 @@ else:
     BEST_MODEL_PATH = Path("Kvasir-mask/polyp_segmentation_v11/weights/best.pt")
 
 print(f"\n✓ Using model: {BEST_MODEL_PATH}")
+#BEST_MODEL_PATH = Path("Kvasir-mask/polyp_segmentation_v11_tuned/weights/best.pt")
 
-# ========== STEP 3: Evaluate Model ==========
-print("\n" + "="*70)
-print("STEP 3: MODEL EVALUATION")
-print("="*70)
-
-evaluate_model_seg(BEST_MODEL_PATH, DATA_YAML, split='test', conf=0.001, iou=0.5) 
-# ========== STEP 4A: Quick Visual Test ==========
-print("\n" + "="*70)
-print("STEP 4A: QUICK VISUAL TEST (Single Image)")
-print("="*70)
-
-test_images = list(Path(f"{OUTPUT_DIR}/images/test").glob("*.*"))
-if test_images:
-    polyp_img = random.choice([img for img in test_images[:10]])
-    print(f"\nTesting on: {polyp_img.name}")
-    predict_and_visualize_seg(BEST_MODEL_PATH, str(polyp_img), conf_threshold=0.25) 
-
-# ========== STEP 4B: Full Test Set Evaluation ==========
+# ========== Full Test Set Evaluation ==========
 print("\n" + "="*70)
 print("STEP 4B: RUNNING INFERENCE ON ALL TEST IMAGES")
 print("="*70)
@@ -709,7 +768,7 @@ predict_on_all_images_seg(
     BEST_MODEL_PATH, 
     f"{OUTPUT_DIR}/images/test",
     data_yaml_path=DATA_YAML,
-    conf_threshold=0.25,
+    conf_threshold=0.001,
     iou=0.5,#increase to be more lax
     save_dir='test_predictions_seg'
 )
