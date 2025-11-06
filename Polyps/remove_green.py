@@ -32,8 +32,8 @@ def auto_detect_and_replace_green(image_path, output_path):
     cv2.imwrite(save_path, img)
 
 # Process all images in the folder
-input_folder = '/Users/lucatognari/Desktop/Kvasir-mask/images'
-output_folder = '/Users/lucatognari/Desktop/Kvasir-mask/images/'
+input_folder = '/home/luca/Desktop/images'
+output_folder = '/home/luca/Desktop/images/'
 os.makedirs(output_folder, exist_ok=True)
 
 for image_file in glob.glob(os.path.join(input_folder, '*.jpg')):  # Adjust extension if needed

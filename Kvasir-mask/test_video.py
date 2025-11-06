@@ -39,7 +39,7 @@ def predict_on_video(model_path, video_path, conf_threshold=0.5, output_filename
     
     model.to(device)
 
-    project_dir = '/home/luca/Desktop/Luca/File-di-kvasir_Daniele'
+    project_dir = '/home/luca/Downloads/File-di-kvasir_Luca'
     run_name = 'polyp_detection'
 
     results = model.predict(
@@ -52,7 +52,8 @@ def predict_on_video(model_path, video_path, conf_threshold=0.5, output_filename
         stream=True,
         verbose=True,
         project=project_dir,
-        name=run_name
+        name=run_name,
+        exist_ok=True
     )
 
     # Rename output video
@@ -87,13 +88,10 @@ def predict_on_video(model_path, video_path, conf_threshold=0.5, output_filename
     print(f"\n📹 Final video saved to: {custom_video}")
     print(f"{'='*70}")
 
-video_paths=['/home/luca/Desktop/Luca/File-di-kvasir_Daniele/Exp3_squared/2021.06.15 M9_W6_squared.mp4',
-                '/home/luca/Desktop/Luca/File-di-kvasir_Daniele/Exp3_squared/2021.05.06 M9_D0_squared.mp4',
-                '/home/luca/Desktop/Luca/File-di-kvasir_Daniele/Exp3_squared/2021.05.31 M9_W4_squared.mp4',
-                '/home/luca/Desktop/Luca/File-di-kvasir_Daniele/Exp3_squared/2021.07.01 M9_W9_squared.mp4']
+video_paths=['/home/luca/Downloads/File-di-kvasir_Luca/7d8e1601-a407-426f-aded-8ed1d60dac8e.avi']
 for path in video_paths:
     predict_on_video(
-        model_path='/home/luca/Desktop/Luca/File-di-kvasir_Daniele/Kvasir-mask/polyp_segmentation_v11_tuned/weights/best.pt',
+        model_path='/home/luca/Downloads/File-di-kvasir_Luca/Kvasir-mask/polyp_segmentation_v11_tuned/weights/best.pt',
         video_path=path,
         conf_threshold=0.2
     )
