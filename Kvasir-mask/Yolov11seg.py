@@ -624,38 +624,7 @@ converter.prepare_dataset(train_split=0.7, val_split=0.2, test_split=0.1)
 
 model = YOLO(f'yolo11{MODEL_SIZE}-seg.pt')  # Replace with your model path if different
 
-search_space = {
-    "lr0": (1e-5, 1e-3),
-    "lrf": (0.01, 0.1),
-    "momentum": (0.6, 0.98),
-    "weight_decay": (0.0, 0.001),
-    "dfl": (1.0, 2.0),
-    "hsv_h": (0.0, 0.02),
-    "hsv_s": (0.0, 0.3),
-    "hsv_v": (0.0, 0.3),
-    "degrees": (0.0, 10.0),
-    "translate": (0.0, 0.1),
-    "scale": (0.0, 0.2),
-    "shear": (0.0, 2.0),
-    "perspective": (0.0, 0.0001),
-    "flipud": (0.0, 1.0),
-    "fliplr": (0.0, 1.0),
-    "box": (3.0, 7.5),     # Box loss weight
-    "cls": (0.2, 2.0),
-    "seg": (0.5, 10.0)
-}
 
-model.tune(
-    data="Kvasir-mask/kvasir_yolo_seg_dataset/data.yaml",
-    epochs=10,
-    iterations=100,
-    optimizer="AdamW",
-    space=search_space,
-    plots=True,
-    save=True,
-    val=True,
-    project="Kvasir-mask/tune"  # ✅ Saves results in ./Kvasir_mask/tune/
-)
 def find_best_hyperparameters():
     """Search for best_hyperparameters.yaml in tune directory."""
     tune_dir = Path("Kvasir-mask/tune")
