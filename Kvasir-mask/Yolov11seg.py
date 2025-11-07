@@ -26,6 +26,7 @@ BATCH_SIZE = 16
 EPOCHS = 100
 IMG_SIZE = 640
 DATA_YAML = f"{OUTPUT_DIR}/data.yaml"
+
 class KvasirToYOLOSeg:
     """Convert Kvasir masks + JSON to YOLO segmentation format with healthy images."""
     MIN_AREA = 200  # Minimum area to consider a contour a valid polyp
@@ -301,6 +302,7 @@ def train_yolo_seg(data_yaml_path, model_size=MODEL_SIZE, epochs=100, img_size=6
     )
     
     return model
+
 def add_gt_overlay(img, label_path):
     """Add ground truth overlay to image (green boxes/masks)."""
     if not label_path.exists():
@@ -504,10 +506,7 @@ def predict_on_all_images_seg(model_path, image_dir, data_yaml_path=None,
 
     print(f"\n{'='*70}")
     print(f"1. RUNNING INFERENCE AND VISUALIZATION ON {len(image_files)} IMAGES (Saving GT Overlay)")
-    print(f"   Conf={
-        
-        
-        shold}, IoU={iou}")
+    print(f"   Conf={conf_threshold}, IoU={iou}")
     print(f"{'='*70}\n")
     
     # --- 1. INFERENCE, VISUALIZATION, AND IMAGE-LEVEL COUNTING LOOP ---
