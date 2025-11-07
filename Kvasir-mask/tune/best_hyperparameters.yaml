@@ -1,0 +1,22 @@
+# 100/100 iterations complete ✅ (25284.42s)
+# Results saved to /home/jovyan/data_m1-waldner/Computer_vision/CRCm_AI/File-di-kvasir/Kvasir-mask/tune/tune
+# Best fitness=1.53507 observed at iteration 98
+# Best fitness metrics are {'metrics/precision(B)': 0.89387, 'metrics/recall(B)': 0.87156, 'metrics/mAP50(B)': 0.91823, 'metrics/mAP50-95(B)': 0.76706, 'metrics/precision(M)': 0.89869, 'metrics/recall(M)': 0.87615, 'metrics/mAP50(M)': 0.93552, 'metrics/mAP50-95(M)': 0.76801, 'val/box_loss': 0.48621, 'val/seg_loss': 0.94372, 'val/cls_loss': 0.75986, 'val/dfl_loss': 0.70699, 'fitness': 1.53507}
+# Best fitness model is /home/jovyan/data_m1-waldner/Computer_vision/CRCm_AI/File-di-kvasir/Kvasir-mask/tune/train10
+lr0: 0.00013
+lrf: 0.01152
+momentum: 0.63628
+weight_decay: 0.00044
+dfl: 1.0
+hsv_h: 0.01411
+hsv_s: 0.27647
+hsv_v: 0.26383
+degrees: 0.0
+translate: 0.08461
+scale: 0.16337
+shear: 0.0
+perspective: 0.0
+flipud: 0.0
+fliplr: 0.37559
+box: 6.14206
+cls: 0.43807
