@@ -14,7 +14,7 @@ import torch
 from PIL import Image
 from ultralytics import YOLO
 print("Current working directory:", os.getcwd())
-os.chdir("/home/luca/Desktop/Luca/File-di-kvasir_Daniele/") #metti come directory il path del progetto, all'interno del quale si trova la cartella kvasir-mask
+os.chdir("/home/luca/Desktop/Luca/File-di-kvasir") #metti come directory il path del progetto, all'interno del quale si trova la cartella kvasir-mask
 
 # ========== CONFIGURATION ==========
 IMAGE_DIR = "Kvasir-mask/images"          
@@ -531,9 +531,9 @@ def predict_on_all_images_seg(model_path, image_dir, data_yaml_path=None,
         
         # 3. Save the final image
         output_path = save_dir / f"pred_gt_{img_path.name}"
-        img_bgr = img_with_gt_overlay[..., ::-1] 
-        
-        img_to_save = np.ascontiguousarray(img_bgr, dtype=np.uint8)
+
+        # img_with_gt_overlay is ALREADY in BGR format, which cv2.imwrite needs.
+        img_to_save = np.ascontiguousarray(img_with_gt_overlay, dtype=np.uint8)
         cv2.imwrite(str(output_path), img_to_save)
         # Count predictions
         num_pred = 0
@@ -622,7 +622,6 @@ print("="*70)
 converter = KvasirToYOLOSeg(IMAGE_DIR, MASK_DIR, JSON_PATH, OUTPUT_DIR, seed=SEED)
 converter.prepare_dataset(train_split=0.7, val_split=0.2, test_split=0.1)
 
-model = YOLO(f'yolo11{MODEL_SIZE}-seg.pt')  # Replace with your model path if different
 
 
 def find_best_hyperparameters():
